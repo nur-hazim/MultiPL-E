@@ -1,4 +1,5 @@
 Python,py,array,list,tuple,dictionary,None,True,False
+C,c,array,array,struct,dictionary,NULL,true,false
 Ada,adb,array,Vector,record,Map,null,True,False
 Bash,sh,array,list,list,CSV,None,true,false
 C#,cs,list,list,tuple,dictionary,null,true,false

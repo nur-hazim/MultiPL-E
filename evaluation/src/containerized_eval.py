@@ -16,6 +16,7 @@ import eval_racket
 import eval_javascript
 import eval_swift
 import eval_cpp
+import eval_c
 import eval_php
 import eval_dlang
 import eval_julia
@@ -50,6 +51,7 @@ EVALUATORS = {
     "javascript": (eval_javascript.eval_script, ".js"),
     "js": (eval_javascript.eval_script, ".js"),
     "cpp": (eval_cpp.eval_script, ".cpp"),
+    "c": (eval_c.eval_script, ".c"),
     "php": (eval_php.eval_script, ".php"),
     "humaneval_to_dlang.py": (eval_dlang.eval_script, ".d"),
     "d": (eval_dlang.eval_script, ".d"),
