@@ -50,42 +50,42 @@ def run(
         bufsize=MAX_BYTES_PER_READ,
         cwd=cwd
     )
-    set_nonblocking(p.stdout)
-    set_nonblocking(p.stderr)
-
-    process_group_id = os.getpgid(p.pid)
-
-    # We sleep for 0.1 seconds in each iteration.
-    max_iterations = timeout_seconds * 10
-    stdout_saved_bytes = []
-    stderr_saved_bytes = []
-    stdout_bytes_read = 0
-    stderr_bytes_read = 0
-
-    for _ in range(max_iterations):
-        this_stdout_read = p.stdout.read(MAX_BYTES_PER_READ)
-        this_stderr_read = p.stderr.read(MAX_BYTES_PER_READ)
-        # this_stdout_read and this_stderr_read may be None if stdout or stderr
-        # are closed. Without these checks, test_close_output fails.
-        if this_stdout_read is not None and stdout_bytes_read < max_output_size:
-            stdout_saved_bytes.append(this_stdout_read)
-            stdout_bytes_read += len(this_stdout_read)
-        if this_stderr_read is not None and stderr_bytes_read < max_output_size:
-            stderr_saved_bytes.append(this_stderr_read)
-            stderr_bytes_read += len(this_stderr_read)
-        exit_code = p.poll()
-        if exit_code is not None:
-            break
-        time.sleep(SLEEP_BETWEEN_READS)
-
+    stdout_saved_bytes = bytearray()
+    stderr_saved_bytes = bytearray()
+    exit_code = None
     try:
-        # Kills the process group. Without this line, test_fork_once fails.
-        os.killpg(process_group_id, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+        set_nonblocking(p.stdout)
+        set_nonblocking(p.stderr)
+        # start_new_session=True makes the process-group ID equal to p.pid.
+        # Avoid getpgid(): a very short-lived child can exit before that lookup.
+        max_iterations = max(1, int(timeout_seconds * 10))
+        for _ in range(max_iterations):
+            for reader, saved in ((p.stdout, stdout_saved_bytes),
+                                  (p.stderr, stderr_saved_bytes)):
+                chunk = reader.read(MAX_BYTES_PER_READ)
+                if chunk:
+                    saved.extend(chunk[:max(0, max_output_size - len(saved))])
+            exit_code = p.poll()
+            if exit_code is not None:
+                break
+            time.sleep(SLEEP_BETWEEN_READS)
+    finally:
+        try:
+            # Kill descendants even when the direct child has exited normally.
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        finally:
+            try:
+                # Reap the direct child on success, timeout, and read/setup errors.
+                p.wait()
+            finally:
+                p.stdout.close()
+                p.stderr.close()
 
     timeout = exit_code is None
     exit_code = exit_code if exit_code is not None else -1
-    stdout = b"".join(stdout_saved_bytes).decode("utf-8", errors="ignore")
-    stderr = b"".join(stderr_saved_bytes).decode("utf-8", errors="ignore")
+    stdout = bytes(stdout_saved_bytes).decode("utf-8", errors="ignore")
+    stderr = bytes(stderr_saved_bytes).decode("utf-8", errors="ignore")
     return Result(timeout=timeout, exit_code=exit_code, stdout=stdout, stderr=stderr)
