@@ -69,6 +69,25 @@ class Completion(dspy.Signature):
 completion_cot = dspy.ChainOfThought(Completion)
 
 
+class CCompletion(dspy.Signature):
+    """Return one complete, compilable ISO C11 translation unit, with no prose
+    or tests. Preserve every supplied include, typedef, struct layout, function
+    name and parameter type. Complete the target function. You MAY add helper
+    functions and their prototypes at FILE SCOPE, outside the target function.
+    Never define a function inside another function. Do not use C++, auto,
+    __int128, statement expressions or other compiler extensions. Include the
+    standard headers used by your code, including stdio.h for sprintf/snprintf.
+    Return all declarations and code, not only the function body. Returned
+    pointers must refer to heap or static storage, never local stack objects.
+    """
+    lang: str = dspy.InputField()
+    prefix: str = dspy.InputField()
+    completion: str = dspy.OutputField(description='Complete ISO C11 source, without tests or explanations')
+
+
+c_completion_cot = dspy.ChainOfThought(CCompletion)
+
+
 # The dataset has a few other fields that we don't need.
 class MultiPLEProblem(TypedDict):
     name: str
@@ -104,7 +123,8 @@ async def do_single(
 
     lm = dspy.LM(**lm_kwargs)
     dspy.configure(lm=lm)
-    out = await completion_cot.aforward(lang=lang, prefix=prefix)
+    predictor = c_completion_cot if lang == 'c' else completion_cot
+    out = await predictor.aforward(lang=lang, prefix=prefix)
     print("**** REASONING ****")
     print(out.reasoning)
     print("**** COMPLETION ****")
@@ -164,6 +184,9 @@ def postprocess_completion(
     prompt: str,
     completion: str,
 ) -> str:
+    if lang == 'c':
+        from c_completion import normalize_c_source
+        return normalize_c_source(prompt, completion)[0]
     if completion.startswith("```"):
         # Assume that this is a complete Markdown block.
         lines = completion.split("\n")
@@ -292,7 +315,8 @@ async def do_bench(
     async def do_task(task: MultiPLEProblem) -> MultiPLEResult:
         async with sema:
             try:
-                prediction = await completion_cot.aforward(lang=lang, prefix=task["prompt"])
+                predictor = c_completion_cot if lang == 'c' else completion_cot
+                prediction = await predictor.aforward(lang=lang, prefix=task["prompt"])
                 return {**task, **prediction.toDict()}
             except Exception as e:
                 tqdm.write(f"Error for {task['name']}: {e}")
